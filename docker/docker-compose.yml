@@ -3,8 +3,12 @@ services:
     build:
       context: ..
       dockerfile: docker/frontend/Dockerfile
-    env_file:
-      - ../.env
+    environment:
+      # Set in your deploy platform (Dokploy) or locally via shell:
+      #   METACAM_API_URL=http://<host> docker compose up -d --build
+      #
+      # If empty, frontend falls back to same-origin (nginx) automatically.
+      - METACAM_API_URL=${METACAM_API_URL:-}
     volumes:
       - frontend_dist:/dist
     restart: unless-stopped
