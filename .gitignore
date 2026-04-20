@@ -1,0 +1,23 @@
+# Root env (local)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+
+# Backend runtime data (projects/configs/artifacts)
+backend/data/
+
+# Node / frontend
+**/node_modules/
+**/dist/
+**/dist-ssr/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/

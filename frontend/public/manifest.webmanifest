@@ -1,0 +1,15 @@
+{
+  "name": "MetaCAM — Gerber → G-code",
+  "short_name": "MetaCAM",
+  "description": "Конвертер Gerber-файлов в управляющий G-code для ЧПУ. NCC + CNCJob.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#1f6bff",
+  "lang": "ru-RU",
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

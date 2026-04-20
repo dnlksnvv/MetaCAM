@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gerber + NCC (Python)</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; background: #111; color: #e8e8e8; }
+    body { margin: 0; padding: 1rem; max-width: 1200px; margin-inline: auto; }
+    h1 { font-weight: 600; font-size: 1.25rem; }
+    h2 { font-size: 1rem; color: #9bd; margin: 0 0 0.5rem; }
+    .panel { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    #svgHost { width: 100%; min-height: 480px; background: #fafafa; border-radius: 6px; overflow: auto; }
+    svg { display: block; }
+    .error { color: #f66; white-space: pre-wrap; }
+    .hint { color: #888; font-size: 0.9rem; margin-top: 0.5rem; }
+    button { padding: 0.4rem 0.9rem; cursor: pointer; margin-right: 0.35rem; }
+    .muted { color: #888; font-size: 0.85rem; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 1rem; max-width: 520px; }
+    label { font-size: 0.85rem; color: #bbb; }
+    input[type="number"] { width: 100%; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <h1>Gerber + NCC (seed) — FastAPI, NCC как во FlatCAM (<code>camlib.clear_polygon2</code> + Shapely)</h1>
+  <div class="panel" style="display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap">
+    <div style="min-width:260px; flex:1">
+      <h2 style="margin:0 0 0.5rem">Project</h2>
+      <input type="file" id="f" accept=".gbr,.gtl,.gbl,.gts,.gbs,.gko,.gm1,.txt" />
+      <div style="margin-top:0.6rem">
+        <button type="button" id="upload">Upload → New project</button>
+        <button type="button" id="refresh">Refresh</button>
+      </div>
+      <p class="hint">Creates server-side project + stores file.</p>
+      <div style="margin-top:0.8rem; border-top:1px solid #333; padding-top:0.8rem">
+        <div class="muted">Current project:</div>
+        <div id="curPrj" style="margin:0.25rem 0 0.5rem; font-weight:600">—</div>
+        <label>Rename project</label>
+        <div style="display:flex; gap:0.35rem; margin-top:0.25rem">
+          <input id="prjName" type="text" style="flex:1" placeholder="Project name" />
+          <button type="button" id="rename">Save</button>
+          <button type="button" id="del">Delete</button>
+        </div>
+        <p class="hint">Open a project from the list below (no auto-generation).</p>
+        <div id="projects" class="muted">—</div>
+      </div>
+    </div>
+    <div style="min-width:260px; flex:1">
+      <h2 style="margin:0 0 0.5rem">Recent configs (last 4)</h2>
+      <div id="cfgs" class="muted">—</div>
+      <div class="hint">Click a config to select it (generation is manual).</div>
+      <div class="muted" style="margin-top:0.35rem">Selected config: <span id="selCfg">default</span></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>NCC → CNCJob (Unified config)</h2>
+    <div class="grid2">
+      <label>Диаметр инструмента (мм)</label>
+      <input type="number" id="nccDia" step="0.001" value="0.136" />
+      <label>Overlap % (FlatCAM tools_ncc_overlap, 40 = 40%)</label>
+      <input type="number" id="nccOv" step="1" value="40" />
+      <label>Margin (мм)</label>
+      <input type="number" id="nccMargin" step="0.1" value="1" />
+      <label>Форма (пока XY как круг)</label>
+      <select id="nccShape"><option value="V" selected>V</option><option value="C">C</option></select>
+    </div>
+    <p style="margin:0.6rem 0 0.3rem;font-size:0.85rem;color:#aaa">Method seed · itself · tools_ncc_connect / tools_ncc_contour / tools_ncc_check_valid:</p>
+    <label><input type="checkbox" id="nccConn" checked /> Connect</label>
+    &nbsp;
+    <label><input type="checkbox" id="nccCont" checked /> Contour</label>
+    &nbsp;
+    <label><input type="checkbox" id="nccVal" checked /> Check validity (find_optim / safe tool)</label>
+    &nbsp;
+    <label><input type="checkbox" id="nccInset" /> Check inset (не из FlatCAM; узкие острова)</label>
+    <p class="hint" style="margin-top:0.6rem">Uses <code>POST /api/v1/projects/&lt;id&gt;/generate</code> (server does Gerber→NCC→G-code).</p>
+    <button type="button" id="gen">Generate (NCC + G-code)</button>
+    <button type="button" id="dl" disabled>Скачать G-code</button>
+  </div>
+
+  <div class="panel">
+    <h2>Milling params</h2>
+    <div class="grid2">
+      <label>Dia (мм)</label>
+      <input type="number" id="millDia" step="0.001" value="0.5000" />
+      <label>Cut Z</label>
+      <input type="number" id="millCutZ" step="0.001" value="-0.0500" />
+      <label>Travel Z</label>
+      <input type="number" id="millTravelZ" step="0.001" value="2.0000" />
+      <label>Feedrate X-Y</label>
+      <input type="number" id="millFxy" step="1" value="120" />
+      <label>Feedrate Z</label>
+      <input type="number" id="millFz" step="1" value="60" />
+      <label>Spindle speed</label>
+      <input type="number" id="millSp" step="100" value="0" />
+      <label>Dwell</label>
+      <div>
+        <label style="display:inline-block; margin-right:0.6rem"><input type="checkbox" id="millDwell" /> Enable</label>
+        <input type="number" id="millDwellT" step="0.1" value="1.0" style="width:120px" />
+      </div>
+      <label>End move Z</label>
+      <input type="number" id="millEndZ" step="0.001" value="15.0000" />
+    </div>
+  </div>
+
+  <div id="err" class="error"></div>
+  <p id="meta" class="muted"></p>
+  <div id="svgHost"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function unionBounds(a, b) {
+      if (!a || !Number.isFinite(a.minX)) return b;
+      if (!b || !Number.isFinite(b.minX)) return a;
+      return {
+        minX: Math.min(a.minX, b.minX),
+        minY: Math.min(a.minY, b.minY),
+        maxX: Math.max(a.maxX, b.maxX),
+        maxY: Math.max(a.maxY, b.maxY),
+      };
+    }
+
+    function renderPreview(copper, toolpath, cncjob) {
+      const b = unionBounds(unionBounds(copper.bounds, toolpath && toolpath.bounds), cncjob && cncjob.bounds);
+      const pad = Math.max(b.maxX - b.minX, b.maxY - b.minY) * 0.05 || 1;
+      const w = (b.maxX - b.minX) + 2 * pad;
+      const h = (b.maxY - b.minY) + 2 * pad;
+      const ox = b.minX - pad;
+      const oy = b.minY - pad;
+
+      const ns = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(ns, "svg");
+      svg.setAttribute("width", "100%");
+      svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+      svg.style.background = "#fafafa";
+
+      const g = document.createElementNS(ns, "g");
+      g.setAttribute("transform", `translate(${-ox}, ${h + oy}) scale(1, -1)`);
+      svg.appendChild(g);
+
+      const copperC = "#2d7a3e";
+      const clearC = "#c62828";
+      /* траектория NCC — красная; не путать с clear-красным для полигонов */
+      const nccCol = "#d32f2f";
+      const cncCol = "#1e88e5";
+
+      function addPath(points, strokeW, strokeCol, isClear) {
+        if (!points || points.length < 2) return;
+        const d = points.map((p, i) => (i === 0 ? "M" : "L") + ` ${p.x} ${p.y}`).join(" ");
+        const path = document.createElementNS(ns, "path");
+        path.setAttribute("d", d);
+        path.setAttribute("fill", "none");
+        path.setAttribute("stroke", isClear ? clearC : strokeCol);
+        path.setAttribute("stroke-opacity", "1");
+        path.setAttribute("stroke-width", strokeW);
+        path.setAttribute("stroke-linecap", "round");
+        path.setAttribute("stroke-linejoin", "round");
+        g.appendChild(path);
+      }
+
+      function addFill(rings, isClear) {
+        rings.forEach((ring) => {
+          if (ring.length < 2) return;
+          const d = ring.map((p, i) => (i === 0 ? "M" : "L") + ` ${p.x} ${p.y}`).join(" ") + " Z";
+          const path = document.createElementNS(ns, "path");
+          path.setAttribute("d", d);
+          path.setAttribute("fill", isClear ? clearC : copperC);
+          path.setAttribute("fill-opacity", "1");
+          path.setAttribute("stroke", isClear ? clearC : copperC);
+          path.setAttribute("stroke-opacity", "1");
+          path.setAttribute("stroke-width", Math.max(0.02 * (b.maxX - b.minX || 1) / 200, 0.01));
+          g.appendChild(path);
+        });
+      }
+
+      (copper.strokes || []).forEach((s) => addPath(s.points, s.width, copperC, s.clear));
+      (copper.circles || []).forEach((c) => {
+        const el = document.createElementNS(ns, "circle");
+        el.setAttribute("cx", c.cx); el.setAttribute("cy", c.cy); el.setAttribute("r", c.r);
+        el.setAttribute("fill", c.clear ? clearC : copperC);
+        el.setAttribute("fill-opacity", "1");
+        el.setAttribute("stroke", c.clear ? clearC : copperC);
+        el.setAttribute("stroke-width", 0.02);
+        g.appendChild(el);
+      });
+      (copper.rects || []).forEach((r) => {
+        const el = document.createElementNS(ns, "rect");
+        el.setAttribute("x", r.cx - r.w / 2); el.setAttribute("y", r.cy - r.h / 2);
+        el.setAttribute("width", r.w); el.setAttribute("height", r.h);
+        el.setAttribute("fill", r.clear ? clearC : copperC);
+        el.setAttribute("stroke", r.clear ? clearC : copperC);
+        el.setAttribute("stroke-width", 0.02);
+        g.appendChild(el);
+      });
+      (copper.fills || []).forEach((f) => addFill(f.rings, f.clear));
+
+      /* Один <path> вместо тысяч — иначе браузер тормозит на 2000+ DOM-узлах (FlatCAM рисует в canvas/Qt). */
+      if (toolpath && toolpath.lines && toolpath.lines.length) {
+        const tw = Math.max((toolpath.toolDiameter || 0.1) * 0.12, 0.02);
+        const chunks = [];
+        for (const ln of toolpath.lines) {
+          const pts = ln.points;
+          if (!pts || pts.length < 2) continue;
+          chunks.push(pts.map((p, i) => (i === 0 ? "M" : "L") + ` ${p.x} ${p.y}`).join(" "));
+        }
+        if (chunks.length) {
+          const path = document.createElementNS(ns, "path");
+          path.setAttribute("d", chunks.join(" "));
+          path.setAttribute("fill", "none");
+          path.setAttribute("stroke", nccCol);
+          path.setAttribute("stroke-opacity", "1");
+          path.setAttribute("stroke-width", tw);
+          path.setAttribute("stroke-linecap", "round");
+          path.setAttribute("stroke-linejoin", "round");
+          g.appendChild(path);
+        }
+      }
+
+      if (cncjob && cncjob.lines && cncjob.lines.length) {
+        const tw = Math.max((cncjob.toolDiameter || 0.5) * 0.12, 0.02);
+        const chunks = [];
+        for (const ln of cncjob.lines) {
+          const pts = ln.points;
+          if (!pts || pts.length < 2) continue;
+          chunks.push(pts.map((p, i) => (i === 0 ? "M" : "L") + ` ${p.x} ${p.y}`).join(" "));
+        }
+        if (chunks.length) {
+          const path = document.createElementNS(ns, "path");
+          path.setAttribute("d", chunks.join(" "));
+          path.setAttribute("fill", "none");
+          path.setAttribute("stroke", cncCol);
+          path.setAttribute("stroke-opacity", "1");
+          path.setAttribute("stroke-width", tw);
+          path.setAttribute("stroke-linecap", "round");
+          path.setAttribute("stroke-linejoin", "round");
+          g.appendChild(path);
+        }
+      }
+
+      $("svgHost").innerHTML = "";
+      $("svgHost").appendChild(svg);
+      let meta = `Медь: units ${copper.units || "?"}; bounds [${b.minX.toFixed(3)}, ${b.minY.toFixed(3)}] — [${b.maxX.toFixed(3)}, ${b.maxY.toFixed(3)}]`;
+      if (toolpath) meta += ` · NCC: ${toolpath.lines?.length || 0} полилиний`;
+      if (cncjob) meta += ` · CNCJob: ${cncjob.lines?.length || 0} полилиний`;
+      $("meta").textContent = meta;
+    }
+
+    let lastCopper = null;
+    let lastToolpath = null;
+    let lastCNCJob = null;
+    let lastGcodeText = "";
+    let lastDownloadUrl = "";
+    let currentProjectId = "";
+    let selectedConfigObj = null; // unified config object
+
+    async function uploadPreview(file) {
+      $("err").textContent = "";
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/v1/gerber/preview", { method: "POST", body: fd });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || res.statusText);
+      return JSON.parse(text);
+    }
+
+    async function createProject(file) {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/v1/projects", { method: "POST", body: fd });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || res.statusText);
+      return JSON.parse(text);
+    }
+
+    async function listProjects() {
+      const res = await fetch("/api/v1/projects");
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || res.statusText);
+      return JSON.parse(text);
+    }
+
+    async function listConfigs() {
+      const res = await fetch("/api/v1/configs/recent");
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || res.statusText);
+      return JSON.parse(text);
+    }
+
+    async function deleteConfig(configId) {
+      const res = await fetch(`/api/v1/configs/${encodeURIComponent(configId)}`, { method: "DELETE" });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || res.statusText);
+      return JSON.parse(text);
+    }
+
+    async function generateForProject(projectId, unifiedConfigOrNull, configIdOrNull) {
+      const fd = new FormData();
+      if (unifiedConfigOrNull) fd.append("config", JSON.stringify(unifiedConfigOrNull));
+      if (configIdOrNull) fd.append("config_id", String(configIdOrNull));
+      const res = await fetch(`/api/v1/projects/${projectId}/generate`, { method: "POST", body: fd });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || res.statusText);
+      return JSON.parse(text);
+    }
+
+    async function getProject(projectId) {
+      const res = await fetch(`/api/v1/projects/${projectId}`);
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || res.statusText);
+      return JSON.parse(text);
+    }
+
+    async function renameProject(projectId, name) {
+      const fd = new FormData();
+      fd.append("name", name);
+      const res = await fetch(`/api/v1/projects/${projectId}`, { method: "PATCH", body: fd });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || res.statusText);
+      return JSON.parse(text);
+    }
+
+    async function deleteProject(projectId) {
+      const res = await fetch(`/api/v1/projects/${projectId}`, { method: "DELETE" });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text || res.statusText);
+      return JSON.parse(text);
+    }
+
+    function applyUnifiedConfigToForm(cfg) {
+      if (!cfg || typeof cfg !== "object") return;
+      const n = cfg.ncc || {};
+      const m = cfg.milling || {};
+      if (n.toolDiameter != null) $("nccDia").value = n.toolDiameter;
+      if (n.overlapPct != null) $("nccOv").value = n.overlapPct;
+      if (n.margin != null) $("nccMargin").value = n.margin;
+      if (n.toolType) $("nccShape").value = n.toolType;
+      $("nccConn").checked = !!n.connect;
+      $("nccCont").checked = !!n.contour;
+      $("nccVal").checked = !!n.checkValidity;
+      $("nccInset").checked = !!n.checkInset;
+
+      if (m.toolDiameter != null) $("millDia").value = m.toolDiameter;
+      if (m.cutZ != null) $("millCutZ").value = m.cutZ;
+      if (m.travelZ != null) $("millTravelZ").value = m.travelZ;
+      if (m.feedrateXY != null) $("millFxy").value = m.feedrateXY;
+      if (m.feedrateZ != null) $("millFz").value = m.feedrateZ;
+      if (m.spindleSpeed != null) $("millSp").value = m.spindleSpeed;
+      $("millDwell").checked = !!m.dwell;
+      if (m.dwellTime != null) $("millDwellT").value = m.dwellTime;
+      if (m.endMoveZ != null) $("millEndZ").value = m.endMoveZ;
+    }
+
+    function readNCCParams() {
+      return {
+        toolDiameter: parseFloat(String($("nccDia").value).replace(",", ".")) || 0.136,
+        toolShape: $("nccShape").value,
+        overlap: parseFloat(String($("nccOv").value).replace(",", ".")) || 40,
+        margin: parseFloat(String($("nccMargin").value).replace(",", ".")) || 1,
+        method: 1,
+        connect: $("nccConn").checked,
+        contour: $("nccCont").checked,
+        toolsNccRef: 0,
+        checkValidity: $("nccVal").checked,
+        checkInset: $("nccInset").checked,
+        stepsPerCircle: 64,
+      };
+    }
+
+    function readMillingParams() {
+      const f = (id, d) => parseFloat(String($(id).value).replace(",", ".")) || d;
+      return {
+        toolDiameter: f("millDia", 0.5),
+        cutZ: f("millCutZ", -0.05),
+        travelZ: f("millTravelZ", 2.0),
+        feedrateXY: f("millFxy", 120),
+        feedrateZ: f("millFz", 60),
+        spindleSpeed: f("millSp", 0),
+        dwell: $("millDwell").checked,
+        dwellTime: f("millDwellT", 1.0),
+        endMoveZ: f("millEndZ", 15.0),
+        preprocessor: "default",
+      };
+    }
+
+    async function refreshSidebar() {
+      const [pr, cf] = await Promise.all([listProjects(), listConfigs()]);
+      const cfgs = (cf.configs || []);
+      $("cfgs").innerHTML = cfgs.length ? "" : "<span class='muted'>—</span>";
+      for (const c of cfgs) {
+        const wrap = document.createElement("span");
+        wrap.style.display = "inline-flex";
+        wrap.style.gap = "0.25rem";
+        wrap.style.marginRight = "0.35rem";
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = `${c.method || "cfg"} · ${c.hash || c.id}`;
+        btn.onclick = () => {
+          selectedConfigObj = c;
+          $("selCfg").textContent = c.hash || c.id;
+          applyUnifiedConfigToForm(c);
+        };
+
+        const del = document.createElement("button");
+        del.type = "button";
+        del.textContent = "×";
+        del.title = "Delete config";
+        del.onclick = async () => {
+          try {
+            await deleteConfig(c.id);
+            if (selectedConfigObj && selectedConfigObj.id === c.id) {
+              selectedConfigObj = null;
+              $("selCfg").textContent = "default";
+            }
+            await refreshSidebar();
+          } catch (e) {
+            $("err").textContent = String(e.message || e);
+          }
+        };
+
+        wrap.appendChild(btn);
+        wrap.appendChild(del);
+        $("cfgs").appendChild(wrap);
+      }
+      const projs = (pr.projects || []);
+      $("projects").innerHTML = projs.length ? "" : "<span class='muted'>—</span>";
+      for (const p of projs) {
+        const row = document.createElement("div");
+        row.style.marginBottom = "0.25rem";
+        const bOpen = document.createElement("button");
+        bOpen.type = "button";
+        bOpen.textContent = `Open: ${p.name || p.id}`;
+        bOpen.onclick = async () => {
+          try {
+            $("err").textContent = "";
+            const resp = await getProject(p.id);
+            currentProjectId = p.id;
+            $("curPrj").textContent = `${resp.project.name} (${resp.project.id})`;
+            $("prjName").value = resp.project.name || "";
+            lastCopper = resp.preview || lastCopper;
+            lastToolpath = (resp.latest && resp.latest.ncc) ? resp.latest.ncc : null;
+            lastCNCJob = (resp.latest && resp.latest.cncjob) ? resp.latest.cncjob : null;
+            lastDownloadUrl = (resp.project.latest_run && resp.project.latest_run.id) ? `/api/v1/projects/${p.id}/runs/${resp.project.latest_run.id}/download` : "";
+            $("dl").disabled = !lastDownloadUrl;
+            // Apply config in priority order:
+            // 1) project.last_config (stored in project.json)
+            // 2) project.last_config_id resolved via global recent configs
+            // 3) otherwise keep current form values (project never generated yet)
+            let cfgToApply = resp.config || null;
+            if (!cfgToApply && resp.project && resp.project.last_config_id) {
+              cfgToApply = cfgs.find(x => x && x.id === resp.project.last_config_id) || null;
+            }
+            if (cfgToApply) {
+              selectedConfigObj = cfgToApply;
+              $("selCfg").textContent = cfgToApply.hash || cfgToApply.id || "project config";
+              applyUnifiedConfigToForm(cfgToApply);
+            } else {
+              // No saved config yet: user must pick one or fill manually.
+              selectedConfigObj = null;
+              $("selCfg").textContent = "default/manual";
+            }
+            if (lastCopper) renderPreview(lastCopper, lastToolpath, lastCNCJob);
+          } catch (e) {
+            $("err").textContent = String(e.message || e);
+          }
+        };
+        const bUse = document.createElement("button");
+        bUse.type = "button";
+        bUse.textContent = "Use config";
+        bUse.style.marginLeft = "0.35rem";
+        bUse.onclick = async () => {
+          try {
+            $("err").textContent = "";
+            const resp = await getProject(p.id);
+            if (!resp.config) throw new Error("This project has no saved config yet. Generate once first.");
+            // IMPORTANT: do NOT change currentProjectId
+            selectedConfigObj = resp.config;
+            $("selCfg").textContent = resp.config.hash || resp.config.id || "project config";
+            applyUnifiedConfigToForm(resp.config);
+          } catch (e) {
+            $("err").textContent = String(e.message || e);
+          }
+        };
+        row.appendChild(bOpen);
+        row.appendChild(bUse);
+        $("projects").appendChild(row);
+      }
+    }
+
+    $("upload").onclick = async () => {
+      const f = $("f").files[0];
+      if (!f) { $("err").textContent = "Выберите Gerber."; return; }
+      try {
+        $("err").textContent = "";
+        $("meta").textContent = "Загружаю и создаю проект…";
+        const resp = await createProject(f);
+        currentProjectId = resp.project.id;
+        $("curPrj").textContent = `${resp.project.name} (${resp.project.id})`;
+        $("prjName").value = resp.project.name || "";
+        lastCopper = resp.preview && !resp.preview.error ? resp.preview : await uploadPreview(f);
+        lastToolpath = null;
+        lastCNCJob = null;
+        lastGcodeText = "";
+        lastDownloadUrl = "";
+        $("dl").disabled = true;
+        renderPreview(lastCopper, null, null);
+        await refreshSidebar();
+      } catch (e) {
+        $("err").textContent = String(e.message || e);
+        $("meta").textContent = "";
+      }
+    };
+
+    $("refresh").onclick = async () => {
+      try { await refreshSidebar(); } catch (e) { $("err").textContent = String(e.message || e); }
+    };
+
+    $("rename").onclick = async () => {
+      if (!currentProjectId) { $("err").textContent = "Выберите проект."; return; }
+      try {
+        const name = $("prjName").value || "";
+        const resp = await renameProject(currentProjectId, name);
+        $("curPrj").textContent = `${resp.project.name} (${resp.project.id})`;
+        await refreshSidebar();
+      } catch (e) {
+        $("err").textContent = String(e.message || e);
+      }
+    };
+
+    $("del").onclick = async () => {
+      if (!currentProjectId) { $("err").textContent = "Выберите проект."; return; }
+      if (!confirm("Удалить проект и файл?")) return;
+      try {
+        await deleteProject(currentProjectId);
+        currentProjectId = "";
+        $("curPrj").textContent = "—";
+        $("prjName").value = "";
+        lastCopper = null;
+        lastToolpath = null;
+        lastCNCJob = null;
+        lastDownloadUrl = "";
+        $("dl").disabled = true;
+        $("svgHost").innerHTML = "";
+        await refreshSidebar();
+      } catch (e) {
+        $("err").textContent = String(e.message || e);
+      }
+    };
+
+    $("gen").onclick = async () => {
+      if (!currentProjectId) { $("err").textContent = "Сначала создайте проект (Upload)."; return; }
+      // IMPORTANT: Always generate from current form fields.
+      // Selecting a config only pre-fills the form; it must not override generation.
+      const unified = {
+        method: "ncc",
+        ncc: {
+          toolDiameter: parseFloat(String($("nccDia").value).replace(",", ".")) || 0.1,
+          toolType: $("nccShape").value,
+          overlapPct: parseFloat(String($("nccOv").value).replace(",", ".")) || 40,
+          margin: parseFloat(String($("nccMargin").value).replace(",", ".")) || 1,
+          connect: $("nccConn").checked,
+          contour: $("nccCont").checked,
+          checkValidity: $("nccVal").checked,
+          checkInset: $("nccInset").checked,
+        },
+        milling: {
+          toolDiameter: parseFloat(String($("millDia").value).replace(",", ".")) || 0.5,
+          cutZ: parseFloat(String($("millCutZ").value).replace(",", ".")) || -0.05,
+          travelZ: parseFloat(String($("millTravelZ").value).replace(",", ".")) || 2.0,
+          feedrateXY: parseFloat(String($("millFxy").value).replace(",", ".")) || 120,
+          feedrateZ: parseFloat(String($("millFz").value).replace(",", ".")) || 60,
+          spindleSpeed: parseFloat(String($("millSp").value).replace(",", ".")) || 0,
+          dwell: $("millDwell").checked,
+          dwellTime: parseFloat(String($("millDwellT").value).replace(",", ".")) || 1.0,
+          endMoveZ: parseFloat(String($("millEndZ").value).replace(",", ".")) || 15.0,
+        },
+      };
+      const btn = $("gen");
+      try {
+        $("err").textContent = "";
+        $("meta").textContent = "Генерирую NCC + CNCJob…";
+        btn.disabled = true;
+        // always send config (so it becomes recent + saved), but do NOT autogenerate when selecting projects/configs
+        const resp = await generateForProject(currentProjectId, unified, null);
+        lastCopper = resp.copper;
+        lastToolpath = resp.ncc;
+        lastCNCJob = resp.cncjob;
+        lastGcodeText = resp.cncjob?.gcode || "";
+        lastDownloadUrl = resp.downloadUrl || "";
+        $("dl").disabled = !lastDownloadUrl;
+        renderPreview(lastCopper, lastToolpath, lastCNCJob);
+        await refreshSidebar();
+      } catch (e) {
+        $("err").textContent = String(e.message || e);
+        $("meta").textContent = "";
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    $("dl").onclick = async () => {
+      if (!lastDownloadUrl) return;
+      const res = await fetch(lastDownloadUrl);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "job.nc";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+
+    refreshSidebar().catch(()=>{});
+  </script>
+</body>
+</html>

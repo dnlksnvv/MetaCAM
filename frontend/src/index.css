@@ -1,0 +1,150 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* MetaCAM design system — техно-минимализм, светлая тема, OpenClaw-inspired
+   Все цвета строго в HSL. */
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 220 25% 10%;
+
+    --surface: 220 20% 98%;
+    --surface-2: 220 15% 95%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 25% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 25% 10%;
+
+    /* Электрик-синий primary */
+    --primary: 222 90% 56%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 222 100% 70%;
+
+    --secondary: 220 15% 96%;
+    --secondary-foreground: 220 25% 15%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 10% 45%;
+
+    /* Лайм accent */
+    --accent: 88 70% 55%;
+    --accent-foreground: 220 30% 10%;
+
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 65% 42%;
+    --warning: 38 95% 55%;
+
+    --border: 220 15% 90%;
+    --input: 220 15% 92%;
+    --ring: 222 90% 56%;
+
+    --radius: 0.875rem;
+
+    /* NCC / CNC overlay цвета */
+    --copper: 25 75% 50%;
+    --ncc-path: 222 90% 56%;
+    --cnc-path: 88 70% 45%;
+
+    /* Градиенты и тени */
+    --gradient-hero: linear-gradient(135deg, hsl(220 20% 99%) 0%, hsl(220 25% 95%) 100%);
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
+    --gradient-grid: linear-gradient(hsl(var(--border) / 0.5) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.5) 1px, transparent 1px);
+
+    --shadow-sm: 0 1px 2px hsl(220 30% 10% / 0.04);
+    --shadow-md: 0 4px 16px -4px hsl(220 30% 10% / 0.08);
+    --shadow-lg: 0 20px 50px -20px hsl(220 30% 10% / 0.18);
+    --shadow-glow: 0 0 0 1px hsl(var(--primary) / 0.15), 0 8px 30px -8px hsl(var(--primary) / 0.35);
+
+    --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-spring: 400ms cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    --sidebar-background: 220 20% 98%;
+    --sidebar-foreground: 220 20% 20%;
+    --sidebar-primary: 222 90% 56%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 15% 94%;
+    --sidebar-accent-foreground: 220 25% 15%;
+    --sidebar-border: 220 15% 90%;
+    --sidebar-ring: 222 90% 56%;
+  }
+
+  .dark {
+    --background: 220 25% 8%;
+    --foreground: 220 15% 95%;
+    --card: 220 22% 11%;
+    --card-foreground: 220 15% 95%;
+    --popover: 220 22% 11%;
+    --popover-foreground: 220 15% 95%;
+    --primary: 222 90% 65%;
+    --primary-foreground: 220 25% 8%;
+    --secondary: 220 18% 16%;
+    --secondary-foreground: 220 15% 95%;
+    --muted: 220 18% 16%;
+    --muted-foreground: 220 10% 65%;
+    --accent: 88 70% 55%;
+    --accent-foreground: 220 30% 10%;
+    --border: 220 18% 18%;
+    --input: 220 18% 18%;
+    --ring: 222 90% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+    @apply bg-surface;
+  }
+  body {
+    @apply bg-surface text-foreground antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+    -webkit-text-size-adjust: 100%;
+  }
+  .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+}
+
+@layer components {
+  .grid-bg {
+    background-image: var(--gradient-grid);
+    background-size: 32px 32px;
+  }
+  .glass {
+    /* Mobile: solid so page/header/sidebar blend */
+    background: hsl(var(--surface));
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+  }
+  @media (min-width: 768px) {
+    .glass {
+      /* Desktop: slightly translucent */
+      background: hsl(var(--surface) / 0.85);
+    }
+  }
+  .text-gradient {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+/* Disable iOS rubber-band overscroll only in PWA standalone mode */
+html[data-pwa="1"],
+html[data-pwa="1"] body {
+  overscroll-behavior-y: none;
+  touch-action: manipulation;
+}
