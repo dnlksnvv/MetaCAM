@@ -33,7 +33,7 @@ services:
       - backend
     image: nginx:1.27-alpine
     ports:
-      - "80:80"
+      - "99:80"
     volumes:
       - ../docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - frontend_dist:/usr/share/nginx/html:ro
