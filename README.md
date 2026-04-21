@@ -1,3 +1,4 @@
+WEB APPLICATION: [https://vsu-metacam.steptflow.tech](https://vsu-metacam.step2flow.tech/)
 ## MetaCAM — Gerber → G-code
 
 MetaCAM — часть дипломного проекта **«Программно-аппаратный комплекс для автоматизированного изготовления метаматериалов методом ЧПУ-фрезерования»**.
